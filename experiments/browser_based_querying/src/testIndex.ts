@@ -1,11 +1,7 @@
 function run() {
   const queryWorker = new Worker('./adapter.js', { type: 'module' });
-  const fetcherWorker = new Worker('./fetcher.js', { type: 'module' });
-  const channel = new MessageChannel();
 
   queryWorker.postMessage({ op: 'init' });
-
-  fetcherWorker.postMessage({ op: 'channel', data: { port: channel.port2 } }, [channel.port2]);
 
   function awaitInitConfirmation(e: MessageEvent) {
     const data = e.data;
@@ -23,8 +19,6 @@ function run() {
   }
 
   function execute(): any {
-    queryWorker.postMessage({ op: 'channel', data: { port: channel.port1 } }, [channel.port1]);
-
     queryWorker.onmessage = function (e: MessageEvent) {
       const data = e.data;
       console.log('Query msg received:', data);

@@ -8,7 +8,7 @@ module.exports = (env) => {
     entry: {
       index: './src/index.tsx',
       adapter: './src/adapter.ts',
-      fetcher: './src/fetcher.ts',
+      fetcher: './src/workers/fetcher.ts',
     },
     output: {
       path: path.resolve(__dirname, 'dist'),

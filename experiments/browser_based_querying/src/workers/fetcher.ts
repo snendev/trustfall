@@ -8,20 +8,7 @@ interface ChannelData {
   sync: SendableSyncContext;
 }
 
-onmessage = function (e): void {
-  const data = e.data;
-  console.log('Fetcher received data:', data);
-
-  if (data.op === 'channel') {
-    const inputChannel = data.data.port;
-    inputChannel.onmessage = fetchHandler;
-    return;
-  }
-
-  throw new Error(data);
-};
-
-function fetchHandler(e: MessageEvent<ChannelData>): void {
+onmessage = function fetchHandler(e: MessageEvent<ChannelData>): void {
   const data = e.data;
   console.log('Fetcher received channel data:', data);
 

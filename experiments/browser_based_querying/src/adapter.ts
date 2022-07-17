@@ -1,26 +1,18 @@
-import init, {
+import {
   Adapter,
   JsEdgeParameters,
   JsContext,
   ContextAndValue,
   ContextAndNeighborsIterator,
   ContextAndBool,
-  Schema,
-  initialize,
-  executeQuery,
 } from '../www2/trustfall_wasm.js';
+
 import { getTopItems, getLatestItems, materializeItem, materializeUser } from './hackernews';
-
-console.log('running wasm init...');
-await init();
-console.log('wasm init complete');
-
-console.log('Query system init...');
-initialize();
-console.log('Query system initialized');
+import FetcherWorkerClient, { lazyFetchMap } from './workers/client';
+import QueryWorker from './workers/worker';
 
 // TODO: This is a copy of schema.graphql, find a better way to include it.
-const schemaText = `
+export const schemaText = `
 schema {
   query: RootSchemaQuery
 }
@@ -116,10 +108,7 @@ interface Webpage {
 }
 `;
 
-Schema.parse(schemaText);
 console.log('Schema loaded.');
-
-postMessage('ready');
 
 type Vertex = any;
 
@@ -153,18 +142,18 @@ function* limitIterator<T>(iter: IterableIterator<T>, limit: number): IterableIt
 }
 
 export class MyAdapter implements Adapter<Vertex> {
-  fetchPort: MessagePort;
+  client: FetcherWorkerClient
 
-  constructor(fetchPort: MessagePort) {
-    this.fetchPort = fetchPort;
+  constructor(client: FetcherWorkerClient) {
+    this.client = client;
   }
 
   *getStartingTokens(edge: string, parameters: JsEdgeParameters): IterableIterator<Vertex> {
     if (edge === 'HackerNewsFrontPage') {
-      return limitIterator(getTopItems(this.fetchPort), 30);
+      return limitIterator(getTopItems(this.client), 30);
     } else if (edge === 'HackerNewsTop') {
       const limit = parameters['max'];
-      const iter = getTopItems(this.fetchPort);
+      const iter = getTopItems(this.client);
       if (limit == undefined) {
         yield* iter;
       } else {
@@ -172,7 +161,7 @@ export class MyAdapter implements Adapter<Vertex> {
       }
     } else if (edge === 'HackerNewsLatestStories') {
       const limit = parameters['max'];
-      const iter = getLatestItems(this.fetchPort);
+      const iter = getLatestItems(this.client);
       if (limit == undefined) {
         yield* iter;
       } else {
@@ -184,7 +173,7 @@ export class MyAdapter implements Adapter<Vertex> {
         throw new Error(`No username given: ${edge} ${parameters}`);
       }
 
-      const user = materializeUser(this.fetchPort, username as string);
+      const user = materializeUser(this.client, username as string);
       if (user != null) {
         yield user;
       }
@@ -292,7 +281,7 @@ export class MyAdapter implements Adapter<Vertex> {
           if (vertex) {
             yield {
               localId: ctx.localId,
-              neighbors: lazyFetchMap(this.fetchPort, [vertex.by], materializeUser),
+              neighbors: lazyFetchMap(this.client, [vertex.by], materializeUser),
             };
           } else {
             yield {
@@ -306,7 +295,7 @@ export class MyAdapter implements Adapter<Vertex> {
           const vertex = ctx.currentToken;
           yield {
             localId: ctx.localId,
-            neighbors: lazyFetchMap(this.fetchPort, vertex?.kids, materializeItem),
+            neighbors: lazyFetchMap(this.client, vertex?.kids, materializeItem),
           };
         }
       } else if (edge_name === 'parent') {
@@ -316,7 +305,7 @@ export class MyAdapter implements Adapter<Vertex> {
           if (parent) {
             yield {
               localId: ctx.localId,
-              neighbors: lazyFetchMap(this.fetchPort, [parent], materializeItem),
+              neighbors: lazyFetchMap(this.client, [parent], materializeItem),
             };
           } else {
             yield {
@@ -335,7 +324,7 @@ export class MyAdapter implements Adapter<Vertex> {
           const submitted = vertex?.submitted;
           yield {
             localId: ctx.localId,
-            neighbors: lazyFetchMap(this.fetchPort, submitted, materializeItem),
+            neighbors: lazyFetchMap(this.client, submitted, materializeItem),
           };
         }
       } else {
@@ -376,88 +365,7 @@ export class MyAdapter implements Adapter<Vertex> {
   }
 }
 
-function* lazyFetchMap<InT, OutT>(
-  fetchPort: MessagePort,
-  inputs: Array<InT> | null,
-  func: (port: MessagePort, arg: InT) => OutT
-): IterableIterator<OutT> {
-  if (inputs) {
-    for (const input of inputs) {
-      const result = func(fetchPort, input);
-      if (result != null) {
-        yield result;
-      }
-    }
-  }
-}
+const adapter = new MyAdapter(new FetcherWorkerClient())
+const queryWorker = new QueryWorker(adapter, schemaText);
 
-let _adapterFetchChannel: MessagePort;
-let _resultIter: IterableIterator<object>;
-
-function performQuery(query: string, args: Record<string, any>): IterableIterator<object> {
-  if (query == null || query == undefined) {
-    throw new Error(`Cannot perform null/undef query.`);
-  }
-  if (args == null || args == undefined) {
-    throw new Error(`Cannot perform query with null/undef args.`);
-  }
-
-  // TODO: figure out why the schema object gets set to null
-  //       as part of the executeQuery() call.
-  const schemaCopy = Schema.parse(schemaText);
-
-  const adapter = new MyAdapter(_adapterFetchChannel);
-  const resultIter = executeQuery(schemaCopy, adapter, query, args);
-
-  return resultIter;
-}
-
-type AdapterMessage =
-  | {
-      op: 'init';
-    }
-  | {
-      op: 'channel';
-      data: {
-        port: MessagePort;
-      };
-    }
-  | {
-      op: 'query';
-      query: string;
-      args: object;
-    }
-  | {
-      op: 'next';
-    };
-
-function dispatch(e: MessageEvent<AdapterMessage>): void {
-  const payload = e.data;
-
-  console.log('Adapter received message:', payload);
-  if (payload.op === 'init') {
-    return;
-  }
-
-  if (payload.op === 'channel') {
-    _adapterFetchChannel = payload.data.port;
-    return;
-  }
-
-  if (payload.op === 'query') {
-    _resultIter = performQuery(payload.query, payload.args);
-  }
-
-  if (payload.op === 'query' || payload.op === 'next') {
-    const rawResult = _resultIter.next();
-    const result = {
-      done: rawResult.done,
-      value: rawResult.value,
-    };
-    console.log('Adapter posting:', result);
-    postMessage(result);
-    return;
-  }
-}
-
-onmessage = dispatch;
+onmessage = queryWorker.dispatch;

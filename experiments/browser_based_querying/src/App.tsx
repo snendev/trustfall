@@ -7,7 +7,6 @@ export default function App(): JSX.Element {
   const [vars, setVars] = useState('');
   const [results, setResults] = useState('');
   const [queryWorker, setQueryWorker] = useState<Worker | null>(null);
-  const [fetcherWorker, setFetcherWorker] = useState<Worker | null>(null);
   const [ready, setReady] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const resultsRef = useRef<HTMLTextAreaElement>(null);
@@ -69,25 +68,16 @@ export default function App(): JSX.Element {
       (prevWorker) =>
         prevWorker ?? new Worker(new URL('./adapter', import.meta.url), { type: 'module' })
     );
-    setFetcherWorker(
-      (prevWorker) =>
-        prevWorker ?? new Worker(new URL('./fetcher', import.meta.url), { type: 'module' })
-    );
   }, []);
 
   // Setup
   useEffect(() => {
-    if (queryWorker == null || fetcherWorker == null) return;
-    const channel = new MessageChannel();
+    if (queryWorker == null) return;
     queryWorker.postMessage({ op: 'init' });
-
-    fetcherWorker.postMessage({ op: 'channel', data: { port: channel.port2 } }, [channel.port2]);
 
     function awaitInitConfirmation(e: MessageEvent) {
       const data = e.data;
       if (data === 'ready' && queryWorker != null) {
-        queryWorker.postMessage({ op: 'channel', data: { port: channel.port1 } }, [channel.port1]);
-
         queryWorker.removeEventListener('message', awaitInitConfirmation);
         queryWorker.addEventListener('message', handleQueryMessage);
         queryWorker.addEventListener('error', handleQueryError);
@@ -99,11 +89,12 @@ export default function App(): JSX.Element {
     queryWorker.addEventListener('message', awaitInitConfirmation);
 
     return () => {
-      queryWorker.removeEventListener('message', handleQueryMessage);
       queryWorker.removeEventListener('message', awaitInitConfirmation);
+      queryWorker.removeEventListener('message', handleQueryMessage);
+      queryWorker.removeEventListener('error', handleQueryError);
       setReady(false);
     };
-  }, [fetcherWorker, queryWorker, handleQueryMessage, handleQueryError]);
+  }, [queryWorker, handleQueryMessage, handleQueryError]);
 
   return (
     <div>
