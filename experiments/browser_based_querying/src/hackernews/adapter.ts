@@ -5,110 +5,11 @@ import {
   ContextAndValue,
   ContextAndNeighborsIterator,
   ContextAndBool,
-} from '../www2/trustfall_wasm.js';
+} from '../../www2/trustfall_wasm.js';
+
+import FetcherWorkerClient, { lazyFetchMap } from '../workers/client';
 
 import { getTopItems, getLatestItems, materializeItem, materializeUser } from './hackernews';
-import FetcherWorkerClient, { lazyFetchMap } from './workers/client';
-import QueryWorker from './workers/worker';
-
-// TODO: This is a copy of schema.graphql, find a better way to include it.
-export const schemaText = `
-schema {
-  query: RootSchemaQuery
-}
-directive @filter(op: String!, value: [String!]) on FIELD | INLINE_FRAGMENT
-directive @tag(name: String) on FIELD
-directive @output(name: String) on FIELD
-directive @optional on FIELD
-directive @recurse(depth: Int!) on FIELD
-directive @fold on FIELD
-
-type RootSchemaQuery {
-  HackerNewsFrontPage: [HackerNewsItem!]!
-  HackerNewsTop(max: Int): [HackerNewsItem!]!
-  HackerNewsLatestStories(max: Int): [HackerNewsStory!]!
-  HackerNewsUser(name: String!): HackerNewsUser
-}
-
-interface HackerNewsItem {
-  id: Int!
-  unixTime: Int!
-  ownUrl: String!
-}
-
-type HackerNewsJob implements HackerNewsItem {
-  # properties from HackerNewsItem
-  id: Int!
-  unixTime: Int!
-  ownUrl: String!
-
-  # own properties
-  title: String!
-  score: Int!
-  url: String!
-
-  # edges
-  link: Webpage!
-}
-
-type HackerNewsStory implements HackerNewsItem {
-  # properties from HackerNewsItem
-  id: Int!
-  unixTime: Int!
-  ownUrl: String!
-
-  # own properties
-  byUsername: String!
-  score: Int!
-  text: String
-  title: String!
-  url: String
-  commentsCount: Int!
-
-  # edges
-  byUser: HackerNewsUser!
-  comment: [HackerNewsComment!]
-  link: Webpage
-}
-
-type HackerNewsComment implements HackerNewsItem {
-  # properties from HackerNewsItem
-  id: Int!
-  unixTime: Int!
-  ownUrl: String!
-
-  # own properties
-  text: String!
-  byUsername: String!
-
-  # edges
-  byUser: HackerNewsUser!
-  reply: [HackerNewsComment!]
-  parent: HackerNewsItem!  # either a parent comment or the story being commented on
-
-  # not implemented yet
-  # topmostAncestor: HackerNewsItem!  # the ultimate ancestor of this item: a story or job
-}
-
-type HackerNewsUser {
-  id: String!
-  karma: Int!
-  about: String
-  unixCreatedAt: Int!
-
-  # The HackerNews API treats submissions of comments and stories the same way.
-  # The way to get only a user's submitted stories is to use this edge then
-  # apply a type coercion on the \`HackerNewsItem\` vertex on edge endpoint:
-  # \`...on HackerNewsStory\`
-  submitted: [HackerNewsItem!]
-}
-
-interface Webpage {
-  url: String!
-}
-`;
-
-console.log('Schema loaded.');
 
 type Vertex = any;
 
@@ -141,7 +42,7 @@ function* limitIterator<T>(iter: IterableIterator<T>, limit: number): IterableIt
   }
 }
 
-export class MyAdapter implements Adapter<Vertex> {
+export default class MyAdapter implements Adapter<Vertex> {
   client: FetcherWorkerClient
 
   constructor(client: FetcherWorkerClient) {
@@ -364,8 +265,3 @@ export class MyAdapter implements Adapter<Vertex> {
     }
   }
 }
-
-const adapter = new MyAdapter(new FetcherWorkerClient())
-const queryWorker = new QueryWorker(adapter, schemaText);
-
-onmessage = queryWorker.dispatch;

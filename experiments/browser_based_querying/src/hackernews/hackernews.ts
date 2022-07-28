@@ -1,4 +1,4 @@
-import Client from './workers/client'
+import Client from '../workers/client'
 
 interface HackerNewsItem {
   type: string;
