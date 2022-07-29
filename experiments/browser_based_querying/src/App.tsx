@@ -66,7 +66,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     setQueryWorker(
       (prevWorker) =>
-        prevWorker ?? new Worker(new URL('./hackernews/worker', import.meta.url), { type: 'module' })
+        prevWorker ?? new Worker(new URL('./afdb/worker', import.meta.url), { type: 'module' })
     );
   }, []);
 
