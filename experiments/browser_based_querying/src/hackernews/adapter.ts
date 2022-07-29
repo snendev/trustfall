@@ -9,7 +9,7 @@ import {
 
 import FetcherWorkerClient, { lazyFetchMap } from '../workers/client';
 
-import { getTopItems, getLatestItems, materializeItem, materializeUser } from './hackernews';
+import { getTopItems, getLatestItems, materializeItem, materializeUser } from './api';
 
 type Vertex = any;
 
